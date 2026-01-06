@@ -41,7 +41,6 @@ function setup() {
   noStroke();
   textureMode(NORMAL); 
   
-  // --- Load CCapture for Video ---
   if (typeof CCapture === 'undefined') {
       loadScript("https://unpkg.com/ccapture.js@1.1.0/build/CCapture.all.min.js", () => {
           console.log("CCapture loaded dynamically.");
@@ -59,7 +58,7 @@ function draw() {
   let targetAngle = flipState === 1 ? HALF_PI : 0;
   currentFlipAngle = lerp(currentFlipAngle, targetAngle, 0.08);
 
-  // 2. Camera Setup (Fixed distance, no export scaling)
+  // 2. Camera Setup
   camera(0, 0, camDist, 0, 0, 0, 0, 1, 0);
 
   // --- 3. TEXT SPACING LOGIC ---
@@ -72,22 +71,47 @@ function draw() {
   textSize(40); 
   noStroke();
   
-  // LEFT TEXT (Serif)
-  textFont(fontSerif); 
-  textAlign(RIGHT, CENTER);
-  text(leftText, -textGap + carouselScroll, 0); 
-  
-  // RIGHT TEXT (Sans)
+  // Calculate text widths for accurate centering
+  textFont(fontSerif);
+  let wLeft = textWidth(leftText);
   textFont(fontSans);
-  textAlign(LEFT, CENTER);
-  text(rightText, textGap + carouselScroll, 0);
+  let wRight = textWidth(rightText);
+  let totalTextW = wLeft + wRight;
+
+  if (nodes.length === 0) {
+      // --- CENTERED MODE (Start Screen) ---
+      let startX = -totalTextW / 2;
+
+      textFont(fontSerif); 
+      textAlign(LEFT, CENTER);
+      text(leftText, startX, 0); 
+      
+      textFont(fontSans);
+      textAlign(LEFT, CENTER);
+      text(rightText, startX + wLeft, 0);
+
+  } else {
+      // --- SPLIT MODE (Carousel Active) ---
+      
+      // LEFT TEXT (Serif)
+      textFont(fontSerif); 
+      textAlign(RIGHT, CENTER);
+      text(leftText, -textGap + carouselScroll, 0); 
+      
+      // RIGHT TEXT (Sans)
+      textFont(fontSans);
+      textAlign(LEFT, CENTER);
+      text(rightText, textGap + carouselScroll, 0);
+  }
   pop();
 
   // 5. Scroll Interaction
-  if (!isRecording) {
+  if (!isRecording && nodes.length > 0) {
       let scrollLimit = totalCarouselWidth / 2;
       let targetScroll = map(mouseX, 0, width, scrollLimit, -scrollLimit);
       carouselScroll = lerp(carouselScroll, targetScroll, 0.1);
+  } else if (nodes.length === 0) {
+      carouselScroll = 0;
   }
 
   // 6. Draw Images
@@ -162,12 +186,20 @@ function handleFileUpload(file) {
   if (file.type === 'image') {
     loadImage(file.data, (loadedImg) => {
       let roundedImg = makeRounded(loadedImg, 20);
+      
+      // Assign random height
       roundedImg.randomH = random(250, 450);
+      
+      // Add to array (The array is cleared via onClick before this runs)
       imgs.push(roundedImg);
       rebuildCarousel();
+      
+      // Pop animation
       if (nodes.length > 0) {
         nodes[nodes.length - 1].targetScale = 0.1;
       }
+      
+      uploadCounter++;
     });
   }
 }
@@ -183,7 +215,6 @@ function handleReset() {
 // --- EXPORT FUNCTIONS ---
 
 function handleExport() {
-  // Simple save of the current view
   save("layout_export.png");
 }
 
@@ -228,6 +259,14 @@ function setupUI() {
   uploadInput = createFileInput(handleFileUpload);
   uploadInput.attribute('multiple', 'true'); 
   
+  // *** KEY CHANGE: Clear images when user CLICKS the upload button ***
+  uploadInput.elt.onclick = () => {
+      imgs = [];
+      nodes = [];
+      carouselScroll = 0;
+      totalCarouselWidth = 0;
+  };
+  
   exportBtn = createButton('Save Image');
   exportBtn.mousePressed(handleExport);
   
@@ -255,11 +294,10 @@ function positionUI() {
   leftTextInput.position(20, yRowText);
   rightTextInput.position(180, yRowText);
 
-  // Position controls closer since dropdown is gone
   uploadInput.position(20, yRowControls);
-  exportBtn.position(200, yRowControls);
-  recordBtn.position(290, yRowControls); 
-  resetBtn.position(380, yRowControls);  
+  exportBtn.position(220, yRowControls);
+  recordBtn.position(310, yRowControls); 
+  resetBtn.position(400, yRowControls);  
 }
 
 function toggleUI(visible) {
