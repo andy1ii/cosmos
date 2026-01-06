@@ -186,15 +186,11 @@ function handleFileUpload(file) {
   if (file.type === 'image') {
     loadImage(file.data, (loadedImg) => {
       let roundedImg = makeRounded(loadedImg, 20);
-      
-      // Assign random height
       roundedImg.randomH = random(250, 450);
       
-      // Add to array (The array is cleared via onClick before this runs)
       imgs.push(roundedImg);
       rebuildCarousel();
       
-      // Pop animation
       if (nodes.length > 0) {
         nodes[nodes.length - 1].targetScale = 0.1;
       }
@@ -259,7 +255,7 @@ function setupUI() {
   uploadInput = createFileInput(handleFileUpload);
   uploadInput.attribute('multiple', 'true'); 
   
-  // *** KEY CHANGE: Clear images when user CLICKS the upload button ***
+  // Click handler to clear images on new upload
   uploadInput.elt.onclick = () => {
       imgs = [];
       nodes = [];
@@ -287,17 +283,30 @@ function setupUI() {
   positionUI();
 }
 
+// --- UPDATED UI POSITIONING ---
 function positionUI() {
-  let yRowText = height - 80; 
-  let yRowControls = height - 40; 
+  let yPos = height - 40; // All controls on one row at the bottom
 
-  leftTextInput.position(20, yRowText);
-  rightTextInput.position(180, yRowText);
+  // 1. Text Inputs ALIGNED LEFT
+  leftTextInput.position(20, yPos);
+  rightTextInput.position(180, yPos);
 
-  uploadInput.position(20, yRowControls);
-  exportBtn.position(220, yRowControls);
-  recordBtn.position(310, yRowControls); 
-  resetBtn.position(400, yRowControls);  
+  // 2. Buttons ALIGNED RIGHT
+  // We calculate positions from the right edge of the screen
+  let rightMargin = width - 20;
+  
+  // Reset Button (Far Right)
+  resetBtn.position(rightMargin - 60, yPos);
+  
+  // Record Button
+  recordBtn.position(rightMargin - 150, yPos);
+  
+  // Save Image Button
+  exportBtn.position(rightMargin - 240, yPos);
+  
+  // Upload Input
+  // Note: File inputs vary in width, we give it some space
+  uploadInput.position(rightMargin - 440, yPos);
 }
 
 function toggleUI(visible) {
