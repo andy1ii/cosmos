@@ -1,7 +1,5 @@
 // --- CONFIGURATION ---
 let carouselScroll = 0;       
-let flipState = 0;            // 0 = Images visible, 1 = Images Hidden
-let currentFlipAngle = 0;     
 
 // --- TEXT & FONTS ---
 let fontSans, fontSerif;
@@ -16,8 +14,6 @@ let uploadCounter = 0;
 
 // Camera & Interaction
 let camDist = 800; 
-let prevMouseX, prevMouseY;
-let isDragging = false;
 
 // Video/Export State
 let isRecording = false;
@@ -28,7 +24,6 @@ let recordingStartFrame = 0;
 // DOM Elements
 let uploadInput, exportBtn, recordBtn, resetBtn;
 let leftTextInput, rightTextInput; 
-let isUIVisible = true;
 
 // --- PRELOAD FONTS ---
 function preload() {
@@ -41,6 +36,7 @@ function setup() {
   noStroke();
   textureMode(NORMAL); 
   
+  // --- Load CCapture for Video ---
   if (typeof CCapture === 'undefined') {
       loadScript("https://unpkg.com/ccapture.js@1.1.0/build/CCapture.all.min.js", () => {
           console.log("CCapture loaded dynamically.");
@@ -54,18 +50,14 @@ function setup() {
 function draw() {
   background(0); 
   
-  // 1. Calculate Flip Animation
-  let targetAngle = flipState === 1 ? HALF_PI : 0;
-  currentFlipAngle = lerp(currentFlipAngle, targetAngle, 0.08);
-
-  // 2. Camera Setup
+  // 1. Camera Setup
   camera(0, 0, camDist, 0, 0, 0, 0, 1, 0);
 
-  // --- 3. TEXT SPACING LOGIC ---
+  // --- 2. TEXT SPACING LOGIC ---
   let textPadding = nodes.length > 0 ? 40 : 0; 
   let textGap = (totalCarouselWidth / 2) + textPadding; 
 
-  // 4. Draw Text "Bookends"
+  // 3. Draw Text "Bookends"
   push();
   fill(255);
   textSize(40); 
@@ -105,7 +97,7 @@ function draw() {
   }
   pop();
 
-  // 5. Scroll Interaction
+  // 4. Scroll Interaction
   if (!isRecording && nodes.length > 0) {
       let scrollLimit = totalCarouselWidth / 2;
       let targetScroll = map(mouseX, 0, width, scrollLimit, -scrollLimit);
@@ -114,11 +106,11 @@ function draw() {
       carouselScroll = 0;
   }
 
-  // 6. Draw Images
+  // 5. Draw Images (ALWAYS FLAT)
   for (let n of nodes) {
       push();
       translate(n.xOff + carouselScroll, 0, 0);
-      rotateY(currentFlipAngle);
+      // REMOVED rotateY here. Images will stay flat facing front.
       
       n.targetScale = lerp(n.targetScale, 1, 0.1);
       scale(n.targetScale);
@@ -128,7 +120,7 @@ function draw() {
       pop();
   }
 
-  // 7. Video Capture
+  // 6. Video Capture
   if (isRecording) {
       recorder.capture(document.querySelector('canvas'));
       if (frameCount - recordingStartFrame > recordingDuration) stopVideoExport();
@@ -283,50 +275,21 @@ function setupUI() {
   positionUI();
 }
 
-// --- UPDATED UI POSITIONING ---
+// --- UI POSITIONING ---
 function positionUI() {
-  let yPos = height - 40; // All controls on one row at the bottom
+  let yPos = height - 40; 
 
   // 1. Text Inputs ALIGNED LEFT
   leftTextInput.position(20, yPos);
   rightTextInput.position(180, yPos);
 
   // 2. Buttons ALIGNED RIGHT
-  // We calculate positions from the right edge of the screen
   let rightMargin = width - 20;
   
-  // Reset Button (Far Right)
   resetBtn.position(rightMargin - 60, yPos);
-  
-  // Record Button
   recordBtn.position(rightMargin - 150, yPos);
-  
-  // Save Image Button
   exportBtn.position(rightMargin - 240, yPos);
-  
-  // Upload Input
-  // Note: File inputs vary in width, we give it some space
   uploadInput.position(rightMargin - 440, yPos);
-}
-
-function toggleUI(visible) {
-    let d = visible ? 'block' : 'none';
-    uploadInput.style('display', d);
-    exportBtn.style('display', d); resetBtn.style('display', d);
-    recordBtn.style('display', d);
-    leftTextInput.style('display', d); rightTextInput.style('display', d);
-}
-
-function keyPressed() {
-  if (key === 'h' || key === 'H') {
-      isUIVisible = !isUIVisible;
-      toggleUI(isUIVisible);
-  }
-}
-
-function mousePressed() {
-  if (mouseY > height - 100) return; 
-  flipState = (flipState === 0) ? 1 : 0; 
 }
 
 // --- HELPERS ---
