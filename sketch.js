@@ -1,7 +1,7 @@
 // --- CONFIGURATION ---
 let carouselScroll = 0;        
 let opticalOffset = 15; 
-let delayStart = 20; // 1 Second Pause (30 frames)
+let delayStart = 30; // 1 Second Pause (30 frames)
 
 // --- TEXT & FONTS ---
 let fontSans, fontSerif;
