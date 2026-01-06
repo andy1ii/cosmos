@@ -2,6 +2,7 @@
 let carouselScroll = 0;        
 let opticalOffset = 15; 
 let delayStart = 30; // 1 Second Pause (30 frames)
+let isDarkMode = true; // State tracker
 
 // --- TEXT & FONTS ---
 let fontSans, fontSerif;
@@ -23,7 +24,7 @@ let recorder;
 let recordingFrameCount = 0; 
 
 // DOM Elements
-let uploadInput, exportBtn, recordBtn, resetBtn;
+let uploadInput, exportBtn, recordBtn, resetBtn, themeBtn; 
 let leftTextInput, rightTextInput; 
 
 function preload() {
@@ -47,11 +48,12 @@ function setup() {
 }
 
 function draw() {
-  background(0); 
+  // Dynamic Background
+  background(isDarkMode ? 0 : 255); 
   
   camera(0, 0, camDist, 0, 0, 0, 0, 1, 0);
 
-  // --- CALCULATE TEXT METRICS FIRST (Needed for positioning) ---
+  // --- CALCULATE TEXT METRICS ---
   push();
   textSize(40); 
   textFont(fontSerif); let wl = textWidth(leftText);
@@ -64,14 +66,12 @@ function draw() {
   let animProgress = 0; 
 
   if (isRecording) {
-      // ** CHANGE: Logic only starts AFTER the delay **
       if (recordingFrameCount > delayStart) {
           let activeFrame = recordingFrameCount - delayStart;
-          // Split happens fast (25 frames)
           animProgress = map(activeFrame, 0, 25, 0, 1, true);
           animProgress = easeOutExpo(animProgress); 
       } else {
-          animProgress = 0; // Hold closed during pause
+          animProgress = 0; 
       }
       currentTextGap = targetGap * animProgress;
   } else {
@@ -81,23 +81,20 @@ function draw() {
 
   // --- 2. DRAW TEXT ---
   push();
-  fill(255);
+  // Dynamic Text Color
+  fill(isDarkMode ? 255 : 0); 
   textSize(40); 
   noStroke();
   
-  // Optical Center Logic
   let startShift = ((wl - wr) / 2) + opticalOffset;
   let currentShift = lerp(startShift, 0, animProgress);
 
-  // Left Text
   textFont(fontSerif); 
   textAlign(RIGHT, CENTER);
   text(leftText, -currentTextGap + carouselScroll + currentShift, 0); 
   
-  // Right Text
   textFont(fontSans); 
   textAlign(LEFT, CENTER);
-  // Note: We use this exact position math to calculate the landing later
   text(rightText, currentTextGap + carouselScroll + currentShift, 0);
   pop();
 
@@ -106,11 +103,10 @@ function draw() {
   if (isRecording && nodes.length > 0) {
       recordingFrameCount++;
 
-      // Only animate scroll after delay
       if (recordingFrameCount > delayStart) {
           let activeFrame = recordingFrameCount - delayStart;
 
-          // PHASE 1: Quick Anticipation Pan (First 30 active frames)
+          // PHASE 1: Quick Anticipation Pan
           if (activeFrame <= 30) {
               let targetLeftPan = 300; 
               let progress = map(activeFrame, 0, 30, 0, 1, true);
@@ -120,19 +116,15 @@ function draw() {
 
           // PHASE 2: The "Velocity Curve" to the End
           if (activeFrame > 35) {
-              // ** CALCULATE LANDING SPOT **
-              // We want the Right Text (at +currentTextGap) to land at 0 (minus half width for visual center)
               let startScroll = 300;
               let endScroll = -targetGap - (wr / 2); 
               
-              // Duration: 90 frames of travel
               let scrollProgress = map(activeFrame, 35, 125, 0, 1, true);
               scrollProgress = easeInOutQuint(scrollProgress); 
               
               carouselScroll = lerp(startScroll, endScroll, scrollProgress);
           }
 
-          // Stop Condition (Extended to allow settling)
           if (activeFrame > 140) {
               stopVideoExport();
           }
@@ -153,7 +145,6 @@ function draw() {
       translate(n.xOff + carouselScroll, 0, 0);
       
       if (isRecording) {
-          // Add delay to start frame as well
           let startFrame = delayStart + 5 + (i * 2); 
           
           if (recordingFrameCount > startFrame) {
@@ -296,13 +287,23 @@ function stopVideoExport() {
         isRecording = false; 
         
         recordBtn.html("Save Video");
-        recordBtn.style('color', '#fff');
+        
+        // Restore button color based on current theme
+        let txtCol = isDarkMode ? '#fff' : '#000';
+        recordBtn.style('color', txtCol);
     }
 }
 
 function handleVideoToggle() {
     if (isRecording) stopVideoExport(); else startVideoExport();
 }
+
+function toggleTheme() {
+    isDarkMode = !isDarkMode;
+    updateThemeStyling();
+}
+
+// --- UI SETUP ---
 
 function setupUI() {
   leftTextInput = createInput(leftText);
@@ -327,26 +328,60 @@ function setupUI() {
   resetBtn = createButton('Reset');
   resetBtn.mousePressed(handleReset); 
   
+  // Create theme button
+  themeBtn = createButton('Light');
+  themeBtn.mousePressed(toggleTheme);
+  
+  // Style everything
   styleUIElement(uploadInput);
-  styleUIElement(exportBtn); styleUIElement(resetBtn);
+  styleUIElement(exportBtn); 
+  styleUIElement(resetBtn);
   styleUIElement(recordBtn);
-  styleUIElement(leftTextInput); styleUIElement(rightTextInput);
+  styleUIElement(themeBtn);
+  styleUIElement(leftTextInput); 
+  styleUIElement(rightTextInput);
   
   leftTextInput.style('width', '140px');
   rightTextInput.style('width', '140px');
 
+  updateThemeStyling(); // Apply correct colors and text immediately
   positionUI();
+}
+
+// ** CHANGE: Button Text Logic **
+function updateThemeStyling() {
+    let txtCol = isDarkMode ? '#fff' : '#000';
+    let bordCol = isDarkMode ? '#555' : '#aaa';
+    let els = [uploadInput, exportBtn, recordBtn, resetBtn, themeBtn, leftTextInput, rightTextInput];
+    
+    for(let e of els) {
+        e.style('color', txtCol);
+        e.style('border', '1px solid ' + bordCol);
+    }
+    
+    // Logic: If Dark Mode, offer "Light". If Light Mode, offer "Dark".
+    if (themeBtn) {
+        themeBtn.html(isDarkMode ? "Light" : "Dark");
+    }
+
+    if(isRecording) {
+         recordBtn.style('color', 'red');
+    }
 }
 
 function positionUI() {
   let yPos = height - 40; 
   leftTextInput.position(20, yPos);
   rightTextInput.position(180, yPos);
+  
   let rightMargin = width - 20;
-  resetBtn.position(rightMargin - 60, yPos);
-  recordBtn.position(rightMargin - 150, yPos);
-  exportBtn.position(rightMargin - 240, yPos);
-  uploadInput.position(rightMargin - 440, yPos);
+  
+  // Adjusted positions to fit new button
+  themeBtn.position(rightMargin - 60, yPos);
+  resetBtn.position(rightMargin - 120, yPos);
+  recordBtn.position(rightMargin - 210, yPos);
+  exportBtn.position(rightMargin - 300, yPos);
+  uploadInput.position(rightMargin - 500, yPos);
 }
 
 function makeRounded(img, radius) {
@@ -361,8 +396,6 @@ function makeRounded(img, radius) {
 
 function styleUIElement(elt) {
   elt.style('background', 'transparent');
-  elt.style('border', '1px solid #555');
-  elt.style('color', '#fff');
   elt.style('padding', '4px');
   elt.style('font-family', 'sans-serif');
   elt.style('cursor', 'pointer');
