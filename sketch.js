@@ -18,14 +18,12 @@ let camDist = 800;
 // Video/Export State
 let isRecording = false;
 let recorder;
-let recordingDuration = 300; 
-let recordingStartFrame = 0;
+let recordingFrameCount = 0; 
 
 // DOM Elements
 let uploadInput, exportBtn, recordBtn, resetBtn;
 let leftTextInput, rightTextInput; 
 
-// --- PRELOAD FONTS ---
 function preload() {
   fontSans = loadFont('resources/FTRegolaNeueTrial-Semibold.otf');
   fontSerif = loadFont('resources/ItemsTextTrial-Book.otf');
@@ -36,7 +34,6 @@ function setup() {
   noStroke();
   textureMode(NORMAL); 
   
-  // --- Load CCapture for Video ---
   if (typeof CCapture === 'undefined') {
       loadScript("https://unpkg.com/ccapture.js@1.1.0/build/CCapture.all.min.js", () => {
           console.log("CCapture loaded dynamically.");
@@ -50,80 +47,97 @@ function setup() {
 function draw() {
   background(0); 
   
-  // 1. Camera Setup
   camera(0, 0, camDist, 0, 0, 0, 0, 1, 0);
 
-  // --- 2. TEXT SPACING LOGIC ---
-  let textPadding = nodes.length > 0 ? 40 : 0; 
-  let textGap = (totalCarouselWidth / 2) + textPadding; 
+  // --- 1. ANIMATION LOGIC (Text Split) ---
+  let targetGap = (nodes.length > 0) ? (totalCarouselWidth / 2) + 60 : 0;
+  let currentTextGap = 0;
 
-  // 3. Draw Text "Bookends"
+  if (isRecording) {
+      // FAST OPEN: Text splits open quickly (0-30 frames)
+      let splitProgress = map(recordingFrameCount, 0, 30, 0, 1, true);
+      // Smooth Easing (Cubic Out)
+      splitProgress = 1 - Math.pow(1 - splitProgress, 3);
+      currentTextGap = targetGap * splitProgress;
+  } else {
+      currentTextGap = targetGap; 
+  }
+
+  // --- 2. DRAW TEXT ---
   push();
   fill(255);
   textSize(40); 
   noStroke();
   
-  // Calculate text widths for accurate centering
-  textFont(fontSerif);
-  let wLeft = textWidth(leftText);
-  textFont(fontSans);
-  let wRight = textWidth(rightText);
-  let totalTextW = wLeft + wRight;
-
-  if (nodes.length === 0) {
-      // --- CENTERED MODE (Start Screen) ---
-      let startX = -totalTextW / 2;
-
-      textFont(fontSerif); 
-      textAlign(LEFT, CENTER);
-      text(leftText, startX, 0); 
-      
-      textFont(fontSans);
-      textAlign(LEFT, CENTER);
-      text(rightText, startX + wLeft, 0);
-
-  } else {
-      // --- SPLIT MODE (Carousel Active) ---
-      
-      // LEFT TEXT (Serif)
-      textFont(fontSerif); 
-      textAlign(RIGHT, CENTER);
-      text(leftText, -textGap + carouselScroll, 0); 
-      
-      // RIGHT TEXT (Sans)
-      textFont(fontSans);
-      textAlign(LEFT, CENTER);
-      text(rightText, textGap + carouselScroll, 0);
-  }
+  textFont(fontSerif); 
+  textAlign(RIGHT, CENTER);
+  text(leftText, -currentTextGap + carouselScroll, 0); 
+  
+  textFont(fontSans); 
+  textAlign(LEFT, CENTER);
+  text(rightText, currentTextGap + carouselScroll, 0);
   pop();
 
-  // 4. Scroll Interaction
-  if (!isRecording && nodes.length > 0) {
-      let scrollLimit = totalCarouselWidth / 2;
-      let targetScroll = map(mouseX, 0, width, scrollLimit, -scrollLimit);
+  // --- 3. CINEMATIC SCROLL LOGIC ---
+  let scrollLimit = (totalCarouselWidth / 2) + 400; 
+
+  if (isRecording && nodes.length > 0) {
+      recordingFrameCount++;
+
+      // PHASE 1: Quick Start Pan (0-40 frames)
+      if (recordingFrameCount <= 40) {
+          let targetLeftPan = 300; 
+          let progress = map(recordingFrameCount, 0, 40, 0, 1, true);
+          progress = 1 - Math.pow(1 - progress, 3); 
+          carouselScroll = lerp(0, targetLeftPan, progress);
+      }
+
+      // PHASE 2: Overlap Scroll (Start moving right at frame 40)
+      if (recordingFrameCount > 40) {
+          // Faster Scroll Speed
+          carouselScroll -= 6; 
+      }
+
+      // Stop Condition
+      if (carouselScroll < -scrollLimit) {
+          stopVideoExport();
+      }
+  } else if (!isRecording && nodes.length > 0) {
+      // Manual Control
+      let mouseLimit = totalCarouselWidth / 2;
+      let targetScroll = map(mouseX, 0, width, mouseLimit, -mouseLimit);
       carouselScroll = lerp(carouselScroll, targetScroll, 0.1);
   } else if (nodes.length === 0) {
       carouselScroll = 0;
   }
 
-  // 5. Draw Images (ALWAYS FLAT)
-  for (let n of nodes) {
+  // --- 4. DRAW IMAGES (FAST WAVE EFFECT) ---
+  for (let i = 0; i < nodes.length; i++) {
+      let n = nodes[i];
       push();
       translate(n.xOff + carouselScroll, 0, 0);
-      // REMOVED rotateY here. Images will stay flat facing front.
       
-      n.targetScale = lerp(n.targetScale, 1, 0.1);
-      scale(n.targetScale);
+      if (isRecording) {
+          // START WAVE MUCH SOONER: Frame 10 base delay
+          if (recordingFrameCount > (10 + n.waveDelay)) {
+              // Snappy pop up
+              n.currentScale = lerp(n.currentScale, 1, 0.2); 
+          } else {
+              n.currentScale = 0;
+          }
+      } else {
+          n.currentScale = lerp(n.currentScale, 1, 0.1);
+      }
       
+      scale(n.currentScale);
       texture(n.img);
       plane(n.w, n.h);
       pop();
   }
 
-  // 6. Video Capture
+  // --- 5. VIDEO CAPTURE ---
   if (isRecording) {
       recorder.capture(document.querySelector('canvas'));
-      if (frameCount - recordingStartFrame > recordingDuration) stopVideoExport();
   }
 }
 
@@ -139,7 +153,6 @@ function rebuildCarousel() {
   let padding = 20; 
   let currentTotalW = 0;
 
-  // 1. First Pass: Calculate total width
   let sizingData = imgs.map(img => {
       if (!img.randomH) img.randomH = random(250, 450); 
       let h = img.randomH;
@@ -155,44 +168,35 @@ function rebuildCarousel() {
   
   totalCarouselWidth = currentTotalW;
 
-  // 2. Second Pass: Positions
   let startX = -totalCarouselWidth / 2;
 
-  nodes = sizingData.map(d => {
+  nodes = sizingData.map((d, index) => {
       let centerX = startX + (d.w / 2);
       let node = { 
           img: d.img, 
           xOff: centerX, 
           w: d.w,
           h: d.h,
-          targetScale: 1 
+          currentScale: 0,
+          waveDelay: 0
       };
       startX += d.w + padding;
       return node;
   });
 }
 
-// --- FILE HANDLING ---
-
 function handleFileUpload(file) {
   if (file.type === 'image') {
     loadImage(file.data, (loadedImg) => {
       let roundedImg = makeRounded(loadedImg, 20);
       roundedImg.randomH = random(250, 450);
-      
       imgs.push(roundedImg);
       rebuildCarousel();
-      
-      if (nodes.length > 0) {
-        nodes[nodes.length - 1].targetScale = 0.1;
-      }
-      
       uploadCounter++;
     });
   }
 }
 
-// --- RESET FUNCTION ---
 function handleReset() {
   imgs = [];
   nodes = [];
@@ -200,21 +204,32 @@ function handleReset() {
   totalCarouselWidth = 0;
 }
 
-// --- EXPORT FUNCTIONS ---
-
 function handleExport() {
   save("layout_export.png");
 }
 
+// --- RECORDING LOGIC ---
+
 function startVideoExport() {
     if (typeof CCapture === 'undefined') { alert("Loading video engine..."); return; }
     
+    // 1. RESET STATE
+    carouselScroll = 0; 
+    recordingFrameCount = 0; 
+
+    // 2. SETUP WAVE ANIMATION
+    for(let i=0; i<nodes.length; i++) {
+        nodes[i].currentScale = 0; 
+        // FAST WAVE: Only 5 frames delay between images
+        nodes[i].waveDelay = i * 5; 
+    }
+
+    // 3. START
     recorder = new CCapture({ format: 'webm', framerate: 30 });
     recorder.start();
     isRecording = true;
-    recordingStartFrame = frameCount;
     
-    recordBtn.html("Stop");
+    recordBtn.html("Recording...");
     recordBtn.style('color', 'red');
 }
 
@@ -247,12 +262,8 @@ function setupUI() {
   uploadInput = createFileInput(handleFileUpload);
   uploadInput.attribute('multiple', 'true'); 
   
-  // Click handler to clear images on new upload
   uploadInput.elt.onclick = () => {
-      imgs = [];
-      nodes = [];
-      carouselScroll = 0;
-      totalCarouselWidth = 0;
+      handleReset(); 
   };
   
   exportBtn = createButton('Save Image');
@@ -275,17 +286,13 @@ function setupUI() {
   positionUI();
 }
 
-// --- UI POSITIONING ---
 function positionUI() {
   let yPos = height - 40; 
 
-  // 1. Text Inputs ALIGNED LEFT
   leftTextInput.position(20, yPos);
   rightTextInput.position(180, yPos);
 
-  // 2. Buttons ALIGNED RIGHT
   let rightMargin = width - 20;
-  
   resetBtn.position(rightMargin - 60, yPos);
   recordBtn.position(rightMargin - 150, yPos);
   exportBtn.position(rightMargin - 240, yPos);
