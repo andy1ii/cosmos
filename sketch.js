@@ -1,5 +1,7 @@
 // --- CONFIGURATION ---
-let carouselScroll = 0;       
+let carouselScroll = 0;        
+let opticalOffset = 15; 
+let delayStart = 20; // 1 Second Pause (30 frames)
 
 // --- TEXT & FONTS ---
 let fontSans, fontSerif;
@@ -49,18 +51,32 @@ function draw() {
   
   camera(0, 0, camDist, 0, 0, 0, 0, 1, 0);
 
-  // --- 1. ANIMATION LOGIC (Text Split) ---
-  let targetGap = (nodes.length > 0) ? (totalCarouselWidth / 2) + 60 : 0;
+  // --- CALCULATE TEXT METRICS FIRST (Needed for positioning) ---
+  push();
+  textSize(40); 
+  textFont(fontSerif); let wl = textWidth(leftText);
+  textFont(fontSans);  let wr = textWidth(rightText);
+  pop();
+
+  // --- 1. ANIMATION LOGIC ---
+  let targetGap = (nodes.length > 0) ? (totalCarouselWidth / 2) + 80 : 0;
   let currentTextGap = 0;
+  let animProgress = 0; 
 
   if (isRecording) {
-      // FAST OPEN: Text splits open quickly (0-30 frames)
-      let splitProgress = map(recordingFrameCount, 0, 30, 0, 1, true);
-      // Smooth Easing (Cubic Out)
-      splitProgress = 1 - Math.pow(1 - splitProgress, 3);
-      currentTextGap = targetGap * splitProgress;
+      // ** CHANGE: Logic only starts AFTER the delay **
+      if (recordingFrameCount > delayStart) {
+          let activeFrame = recordingFrameCount - delayStart;
+          // Split happens fast (25 frames)
+          animProgress = map(activeFrame, 0, 25, 0, 1, true);
+          animProgress = easeOutExpo(animProgress); 
+      } else {
+          animProgress = 0; // Hold closed during pause
+      }
+      currentTextGap = targetGap * animProgress;
   } else {
       currentTextGap = targetGap; 
+      animProgress = (nodes.length > 0) ? 1 : 0;
   }
 
   // --- 2. DRAW TEXT ---
@@ -69,38 +85,57 @@ function draw() {
   textSize(40); 
   noStroke();
   
+  // Optical Center Logic
+  let startShift = ((wl - wr) / 2) + opticalOffset;
+  let currentShift = lerp(startShift, 0, animProgress);
+
+  // Left Text
   textFont(fontSerif); 
   textAlign(RIGHT, CENTER);
-  text(leftText, -currentTextGap + carouselScroll, 0); 
+  text(leftText, -currentTextGap + carouselScroll + currentShift, 0); 
   
+  // Right Text
   textFont(fontSans); 
   textAlign(LEFT, CENTER);
-  text(rightText, currentTextGap + carouselScroll, 0);
+  // Note: We use this exact position math to calculate the landing later
+  text(rightText, currentTextGap + carouselScroll + currentShift, 0);
   pop();
 
-  // --- 3. CINEMATIC SCROLL LOGIC ---
-  let scrollLimit = (totalCarouselWidth / 2) + 400; 
+  // --- 3. DYNAMIC SCROLL LOGIC ---
 
   if (isRecording && nodes.length > 0) {
       recordingFrameCount++;
 
-      // PHASE 1: Quick Start Pan (0-40 frames)
-      if (recordingFrameCount <= 40) {
-          let targetLeftPan = 300; 
-          let progress = map(recordingFrameCount, 0, 40, 0, 1, true);
-          progress = 1 - Math.pow(1 - progress, 3); 
-          carouselScroll = lerp(0, targetLeftPan, progress);
-      }
+      // Only animate scroll after delay
+      if (recordingFrameCount > delayStart) {
+          let activeFrame = recordingFrameCount - delayStart;
 
-      // PHASE 2: Overlap Scroll (Start moving right at frame 40)
-      if (recordingFrameCount > 40) {
-          // Faster Scroll Speed
-          carouselScroll -= 6; 
-      }
+          // PHASE 1: Quick Anticipation Pan (First 30 active frames)
+          if (activeFrame <= 30) {
+              let targetLeftPan = 300; 
+              let progress = map(activeFrame, 0, 30, 0, 1, true);
+              progress = easeOutExpo(progress); 
+              carouselScroll = lerp(0, targetLeftPan, progress);
+          }
 
-      // Stop Condition
-      if (carouselScroll < -scrollLimit) {
-          stopVideoExport();
+          // PHASE 2: The "Velocity Curve" to the End
+          if (activeFrame > 35) {
+              // ** CALCULATE LANDING SPOT **
+              // We want the Right Text (at +currentTextGap) to land at 0 (minus half width for visual center)
+              let startScroll = 300;
+              let endScroll = -targetGap - (wr / 2); 
+              
+              // Duration: 90 frames of travel
+              let scrollProgress = map(activeFrame, 35, 125, 0, 1, true);
+              scrollProgress = easeInOutQuint(scrollProgress); 
+              
+              carouselScroll = lerp(startScroll, endScroll, scrollProgress);
+          }
+
+          // Stop Condition (Extended to allow settling)
+          if (activeFrame > 140) {
+              stopVideoExport();
+          }
       }
   } else if (!isRecording && nodes.length > 0) {
       // Manual Control
@@ -111,17 +146,19 @@ function draw() {
       carouselScroll = 0;
   }
 
-  // --- 4. DRAW IMAGES (FAST WAVE EFFECT) ---
+  // --- 4. DRAW IMAGES ---
   for (let i = 0; i < nodes.length; i++) {
       let n = nodes[i];
       push();
       translate(n.xOff + carouselScroll, 0, 0);
       
       if (isRecording) {
-          // START WAVE MUCH SOONER: Frame 10 base delay
-          if (recordingFrameCount > (10 + n.waveDelay)) {
-              // Snappy pop up
-              n.currentScale = lerp(n.currentScale, 1, 0.2); 
+          // Add delay to start frame as well
+          let startFrame = delayStart + 5 + (i * 2); 
+          
+          if (recordingFrameCount > startFrame) {
+              let popProgress = map(recordingFrameCount, startFrame, startFrame + 12, 0, 1, true);
+              n.currentScale = easeOutBack(popProgress); 
           } else {
               n.currentScale = 0;
           }
@@ -135,10 +172,25 @@ function draw() {
       pop();
   }
 
-  // --- 5. VIDEO CAPTURE ---
-  if (isRecording) {
+  if (isRecording && recorder) {
       recorder.capture(document.querySelector('canvas'));
   }
+}
+
+// --- EASING FUNCTIONS ---
+
+function easeOutExpo(x) {
+    return x === 1 ? 1 : 1 - Math.pow(2, -10 * x);
+}
+
+function easeOutBack(x) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+}
+
+function easeInOutQuint(x) {
+    return x < 0.5 ? 16 * x * x * x * x * x : 1 - Math.pow(-2 * x + 2, 5) / 2;
 }
 
 // --- CORE FUNCTIONS ---
@@ -177,8 +229,7 @@ function rebuildCarousel() {
           xOff: centerX, 
           w: d.w,
           h: d.h,
-          currentScale: 0,
-          waveDelay: 0
+          currentScale: 0
       };
       startX += d.w + padding;
       return node;
@@ -208,29 +259,34 @@ function handleExport() {
   save("layout_export.png");
 }
 
-// --- RECORDING LOGIC ---
-
 function startVideoExport() {
-    if (typeof CCapture === 'undefined') { alert("Loading video engine..."); return; }
+    if (nodes.length === 0) {
+        alert("⚠️ Please upload images first before hitting 'Save Video'!");
+        return; 
+    }
+
+    if (typeof CCapture === 'undefined') { 
+        alert("Video engine still loading... please wait 5 seconds and try again."); 
+        return; 
+    }
     
-    // 1. RESET STATE
     carouselScroll = 0; 
     recordingFrameCount = 0; 
 
-    // 2. SETUP WAVE ANIMATION
     for(let i=0; i<nodes.length; i++) {
         nodes[i].currentScale = 0; 
-        // FAST WAVE: Only 5 frames delay between images
-        nodes[i].waveDelay = i * 5; 
     }
 
-    // 3. START
-    recorder = new CCapture({ format: 'webm', framerate: 30 });
-    recorder.start();
-    isRecording = true;
-    
-    recordBtn.html("Recording...");
-    recordBtn.style('color', 'red');
+    try {
+        recorder = new CCapture({ format: 'webm', framerate: 30 });
+        recorder.start();
+        isRecording = true;
+        recordBtn.html("Recording...");
+        recordBtn.style('color', 'red');
+    } catch(e) {
+        alert("Could not start recording. Refresh and try again.");
+        isRecording = false;
+    }
 }
 
 function stopVideoExport() {
@@ -248,8 +304,6 @@ function handleVideoToggle() {
     if (isRecording) stopVideoExport(); else startVideoExport();
 }
 
-// --- UI SETUP ---
-
 function setupUI() {
   leftTextInput = createInput(leftText);
   leftTextInput.attribute('placeholder', 'Left Text');
@@ -262,9 +316,7 @@ function setupUI() {
   uploadInput = createFileInput(handleFileUpload);
   uploadInput.attribute('multiple', 'true'); 
   
-  uploadInput.elt.onclick = () => {
-      handleReset(); 
-  };
+  uploadInput.elt.onclick = () => { handleReset(); };
   
   exportBtn = createButton('Save Image');
   exportBtn.mousePressed(handleExport);
@@ -288,18 +340,14 @@ function setupUI() {
 
 function positionUI() {
   let yPos = height - 40; 
-
   leftTextInput.position(20, yPos);
   rightTextInput.position(180, yPos);
-
   let rightMargin = width - 20;
   resetBtn.position(rightMargin - 60, yPos);
   recordBtn.position(rightMargin - 150, yPos);
   exportBtn.position(rightMargin - 240, yPos);
   uploadInput.position(rightMargin - 440, yPos);
 }
-
-// --- HELPERS ---
 
 function makeRounded(img, radius) {
   let mask = createGraphics(img.width, img.height);
