@@ -202,11 +202,10 @@ function draw() {
   }
 }
 
-// --- HELPER: ANIMATION (SPEEDY START -> SLOW END) ---
+// --- HELPER: ANIMATION (SMOOTH EASE-IN-OUT) ---
 
 function getImageScaleAtTime(t, index) {
     let startFrame = 0 + (index * 2); 
-    // Increased duration slightly to 25 so you can feel the "slow down" at the end
     let duration = 25; 
     
     if (t < startFrame) return 0;
@@ -214,15 +213,16 @@ function getImageScaleAtTime(t, index) {
     
     let p = map(t, startFrame, startFrame + duration, 0, 1, true);
     
-    // CHANGED: Reverted to easeOutExpo.
-    // This starts VERY fast (speedy) and gently slows down.
-    return easeOutExpo(p); 
+    // CHANGED: Using easeInOutQuint for smooth Start AND End
+    return easeInOutQuint(p); 
 }
 
 // --- EASING ---
 
-function easeOutExpo(x) {
-    return x === 1 ? 1 : 1 - Math.pow(2, -10 * x);
+function easeInOutQuint(x) {
+    // This starts slow, speeds up in middle, slows down at end.
+    // Perfect for splitting apart and coming back together gracefully.
+    return x < 0.5 ? 16 * x * x * x * x * x : 1 - Math.pow(-2 * x + 2, 5) / 2;
 }
 
 // --- CORE FUNCTIONS ---
