@@ -1,29 +1,42 @@
 // --- CONFIGURATION ---
-let carouselScroll = 0;        
-let opticalOffset = 15; 
-let delayStart = 30; // 1 Second Pause (30 frames)
-let isDarkMode = true; // State tracker
+
+let delayStart = 30; // Pause before animation starts
+let isDarkMode = true; 
+let itemPadding = 20; 
 
 // --- TEXT & FONTS ---
+
 let fontSans, fontSerif;
 let leftText = "Coffee Houses "; 
 let rightText = "curated by @DAVIDSMITH";
 
 // Image Management
+
 let imgs = [];
 let nodes = [];
 let totalCarouselWidth = 0; 
 let uploadCounter = 0;
 
 // Camera & Interaction
+
 let camDist = 800; 
 
 // Video/Export State
+
 let isRecording = false;
 let recorder;
 let recordingFrameCount = 0; 
 
+// --- ANIMATION TIMING ---
+
+// 1. SEQUENCE DURATION (Forward Animation)
+const SEQ_DURATION = 60; 
+
+// 2. HOLD DURATION (Pause at full width)
+const HOLD_DURATION = 30; 
+
 // DOM Elements
+
 let uploadInput, exportBtn, recordBtn, resetBtn, themeBtn; 
 let leftTextInput, rightTextInput; 
 
@@ -48,140 +61,168 @@ function setup() {
 }
 
 function draw() {
-  // Dynamic Background
   background(isDarkMode ? 0 : 255); 
   
   camera(0, 0, camDist, 0, 0, 0, 0, 1, 0);
 
-  // --- CALCULATE TEXT METRICS ---
+  // --- 1. DETERMINE TIME (t) ---
+  let t = 0; 
+  
+  if (isRecording) {
+      if (recordingFrameCount > delayStart) {
+          let activeFrame = recordingFrameCount - delayStart;
+          
+          if (activeFrame <= SEQ_DURATION) {
+              t = activeFrame; // Forward
+          } else if (activeFrame <= SEQ_DURATION + HOLD_DURATION) {
+              t = SEQ_DURATION; // Hold
+          } else {
+              // Reverse
+              let timeSinceHold = activeFrame - (SEQ_DURATION + HOLD_DURATION);
+              t = SEQ_DURATION - timeSinceHold;
+              if (t < 0) t = 0; 
+          }
+
+          let totalDuration = (SEQ_DURATION * 2) + HOLD_DURATION;
+          if (activeFrame > totalDuration + 60) {
+              stopVideoExport();
+          }
+      } else {
+          t = 0; // Delay phase
+      }
+  } else {
+      t = SEQ_DURATION; // Manual Mode
+  }
+
+  // --- 2. MEASURE TEXT EXACTLY ---
   push();
   textSize(40); 
   textFont(fontSerif); let wl = textWidth(leftText);
   textFont(fontSans);  let wr = textWidth(rightText);
   pop();
 
-  // --- 1. ANIMATION LOGIC ---
-  let targetGap = (nodes.length > 0) ? (totalCarouselWidth / 2) + 80 : 0;
-  let currentTextGap = 0;
-  let animProgress = 0; 
+  // --- 3. DYNAMIC CONTENT CALCULATIONS ---
+  
+  let currentDynamicWidth = 0;
+  let nodeSizes = []; 
 
-  if (isRecording) {
-      if (recordingFrameCount > delayStart) {
-          let activeFrame = recordingFrameCount - delayStart;
-          animProgress = map(activeFrame, 0, 25, 0, 1, true);
-          animProgress = easeOutExpo(animProgress); 
-      } else {
-          animProgress = 0; 
-      }
-      currentTextGap = targetGap * animProgress;
-  } else {
-      currentTextGap = targetGap; 
-      animProgress = (nodes.length > 0) ? 1 : 0;
+  // Calculate width of images at current moment
+  for (let i = 0; i < nodes.length; i++) {
+      let s = getImageScaleAtTime(t, i);
+      let currentW = nodes[i].w * s;
+      let currentPad = (i < nodes.length - 1) ? (itemPadding * s) : 0;
+      
+      nodeSizes.push({ s, currentW, currentPad });
+      currentDynamicWidth += currentW + currentPad;
   }
 
-  // --- 2. DRAW TEXT ---
+  // Calculate dynamic gap (0 at start, 20 when images appear)
+  let dynamicGap = 0;
+  if (nodes.length > 0 && nodeSizes[0]) {
+      dynamicGap = 20 * nodeSizes[0].s;
+  }
+
+  // The geometric center of the IMAGES
+  let halfWidth = (currentDynamicWidth / 2) + dynamicGap;
+
+
+  // --- 4. CENTERING & ZOOM LOGIC ---
+
+  // A. CALCULATE BOUNDING BOX
+  let leftEdge = -halfWidth - wl;
+  let rightEdge = halfWidth + wr;
+
+  // B. FIND VISUAL CENTER
+  let centerOffset = (leftEdge + rightEdge) / 2;
+
+  // C. CALCULATE SAFETY ZOOM
+  let maxPossibleWidth = wl + 20 + totalCarouselWidth + 20 + wr;
+  let safeScreenWidth = width * 0.85; 
+  
+  let zoom = 1;
+  if (maxPossibleWidth > safeScreenWidth) {
+      zoom = safeScreenWidth / maxPossibleWidth;
+  }
+
+  // D. APPLY TRANSFORMS
+  scale(zoom);
+  translate(-centerOffset, 0, 0);
+
+
+  // --- 5. POSITIONING ELEMENTS ---
+  
+  let leftTextX = -halfWidth;
+  let rightTextX = halfWidth;
+
+  // --- 6. DRAW TEXT ---
   push();
-  // Dynamic Text Color
   fill(isDarkMode ? 255 : 0); 
   textSize(40); 
   noStroke();
   
-  let startShift = ((wl - wr) / 2) + opticalOffset;
-  let currentShift = lerp(startShift, 0, animProgress);
-
+  // Left Text
   textFont(fontSerif); 
   textAlign(RIGHT, CENTER);
-  text(leftText, -currentTextGap + carouselScroll + currentShift, 0); 
+  text(leftText, leftTextX, 0); 
   
+  // Right Text
   textFont(fontSans); 
   textAlign(LEFT, CENTER);
-  text(rightText, currentTextGap + carouselScroll + currentShift, 0);
+  text(rightText, rightTextX, 0);
   pop();
 
-  // --- 3. DYNAMIC SCROLL LOGIC ---
+  // --- 7. DRAW IMAGES ---
+  if (nodes.length > 0) {
+      // Start drawing from the left side of the image cluster
+      let currentX = -(currentDynamicWidth / 2);
 
-  if (isRecording && nodes.length > 0) {
+      for (let i = 0; i < nodes.length; i++) {
+          let n = nodes[i];
+          let data = nodeSizes[i];
+
+          if (data.s > 0.001) {
+              push();
+              let drawX = currentX + (data.currentW / 2);
+              
+              translate(drawX, 0, 0); 
+              scale(data.s); 
+              
+              texture(n.img);
+              plane(n.w, n.h);
+              pop();
+
+              currentX += data.currentW + data.currentPad;
+          }
+      }
+  }
+
+  if (isRecording) {
       recordingFrameCount++;
-
-      if (recordingFrameCount > delayStart) {
-          let activeFrame = recordingFrameCount - delayStart;
-
-          // PHASE 1: Quick Anticipation Pan
-          if (activeFrame <= 30) {
-              let targetLeftPan = 300; 
-              let progress = map(activeFrame, 0, 30, 0, 1, true);
-              progress = easeOutExpo(progress); 
-              carouselScroll = lerp(0, targetLeftPan, progress);
-          }
-
-          // PHASE 2: The "Velocity Curve" to the End
-          if (activeFrame > 35) {
-              let startScroll = 300;
-              let endScroll = -targetGap - (wr / 2); 
-              
-              let scrollProgress = map(activeFrame, 35, 125, 0, 1, true);
-              scrollProgress = easeInOutQuint(scrollProgress); 
-              
-              carouselScroll = lerp(startScroll, endScroll, scrollProgress);
-          }
-
-          if (activeFrame > 140) {
-              stopVideoExport();
-          }
-      }
-  } else if (!isRecording && nodes.length > 0) {
-      // Manual Control
-      let mouseLimit = totalCarouselWidth / 2;
-      let targetScroll = map(mouseX, 0, width, mouseLimit, -mouseLimit);
-      carouselScroll = lerp(carouselScroll, targetScroll, 0.1);
-  } else if (nodes.length === 0) {
-      carouselScroll = 0;
-  }
-
-  // --- 4. DRAW IMAGES ---
-  for (let i = 0; i < nodes.length; i++) {
-      let n = nodes[i];
-      push();
-      translate(n.xOff + carouselScroll, 0, 0);
-      
-      if (isRecording) {
-          let startFrame = delayStart + 5 + (i * 2); 
-          
-          if (recordingFrameCount > startFrame) {
-              let popProgress = map(recordingFrameCount, startFrame, startFrame + 12, 0, 1, true);
-              n.currentScale = easeOutBack(popProgress); 
-          } else {
-              n.currentScale = 0;
-          }
-      } else {
-          n.currentScale = lerp(n.currentScale, 1, 0.1);
-      }
-      
-      scale(n.currentScale);
-      texture(n.img);
-      plane(n.w, n.h);
-      pop();
-  }
-
-  if (isRecording && recorder) {
-      recorder.capture(document.querySelector('canvas'));
+      if (recorder) recorder.capture(document.querySelector('canvas'));
   }
 }
 
-// --- EASING FUNCTIONS ---
+// --- HELPER: ANIMATION (SPEEDY START -> SLOW END) ---
+
+function getImageScaleAtTime(t, index) {
+    let startFrame = 0 + (index * 2); 
+    // Increased duration slightly to 25 so you can feel the "slow down" at the end
+    let duration = 25; 
+    
+    if (t < startFrame) return 0;
+    if (t > startFrame + duration) return 1;
+    
+    let p = map(t, startFrame, startFrame + duration, 0, 1, true);
+    
+    // CHANGED: Reverted to easeOutExpo.
+    // This starts VERY fast (speedy) and gently slows down.
+    return easeOutExpo(p); 
+}
+
+// --- EASING ---
 
 function easeOutExpo(x) {
     return x === 1 ? 1 : 1 - Math.pow(2, -10 * x);
-}
-
-function easeOutBack(x) {
-    const c1 = 1.70158;
-    const c3 = c1 + 1;
-    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
-}
-
-function easeInOutQuint(x) {
-    return x < 0.5 ? 16 * x * x * x * x * x : 1 - Math.pow(-2 * x + 2, 5) / 2;
 }
 
 // --- CORE FUNCTIONS ---
@@ -193,9 +234,7 @@ function rebuildCarousel() {
       return;
   }
 
-  let padding = 20; 
   let currentTotalW = 0;
-
   let sizingData = imgs.map(img => {
       if (!img.randomH) img.randomH = random(250, 450); 
       let h = img.randomH;
@@ -206,24 +245,17 @@ function rebuildCarousel() {
   });
 
   if (sizingData.length > 0) {
-      currentTotalW += (sizingData.length - 1) * padding;
+      currentTotalW += (sizingData.length - 1) * itemPadding; 
   }
   
   totalCarouselWidth = currentTotalW;
-
-  let startX = -totalCarouselWidth / 2;
-
-  nodes = sizingData.map((d, index) => {
-      let centerX = startX + (d.w / 2);
-      let node = { 
+  
+  nodes = sizingData.map((d) => {
+      return { 
           img: d.img, 
-          xOff: centerX, 
           w: d.w,
-          h: d.h,
-          currentScale: 0
+          h: d.h
       };
-      startX += d.w + padding;
-      return node;
   });
 }
 
@@ -242,7 +274,6 @@ function handleFileUpload(file) {
 function handleReset() {
   imgs = [];
   nodes = [];
-  carouselScroll = 0;
   totalCarouselWidth = 0;
 }
 
@@ -252,31 +283,24 @@ function handleExport() {
 
 function startVideoExport() {
     if (nodes.length === 0) {
-        alert("⚠️ Please upload images first before hitting 'Save Video'!");
+        alert("⚠️ Please upload images first!");
         return; 
     }
-
     if (typeof CCapture === 'undefined') { 
-        alert("Video engine still loading... please wait 5 seconds and try again."); 
+        alert("Video engine loading..."); 
         return; 
     }
-    
-    carouselScroll = 0; 
     recordingFrameCount = 0; 
-
-    for(let i=0; i<nodes.length; i++) {
-        nodes[i].currentScale = 0; 
-    }
+    isRecording = true;
 
     try {
         recorder = new CCapture({ format: 'webm', framerate: 30 });
         recorder.start();
-        isRecording = true;
         recordBtn.html("Recording...");
         recordBtn.style('color', 'red');
     } catch(e) {
-        alert("Could not start recording. Refresh and try again.");
         isRecording = false;
+        alert("Recording failed to start.");
     }
 }
 
@@ -285,12 +309,8 @@ function stopVideoExport() {
         recorder.stop(); 
         recorder.save();
         isRecording = false; 
-        
         recordBtn.html("Save Video");
-        
-        // Restore button color based on current theme
-        let txtCol = isDarkMode ? '#fff' : '#000';
-        recordBtn.style('color', txtCol);
+        updateThemeStyling();
     }
 }
 
@@ -304,7 +324,6 @@ function toggleTheme() {
 }
 
 // --- UI SETUP ---
-
 function setupUI() {
   leftTextInput = createInput(leftText);
   leftTextInput.attribute('placeholder', 'Left Text');
@@ -316,7 +335,6 @@ function setupUI() {
 
   uploadInput = createFileInput(handleFileUpload);
   uploadInput.attribute('multiple', 'true'); 
-  
   uploadInput.elt.onclick = () => { handleReset(); };
   
   exportBtn = createButton('Save Image');
@@ -328,11 +346,9 @@ function setupUI() {
   resetBtn = createButton('Reset');
   resetBtn.mousePressed(handleReset); 
   
-  // Create theme button
   themeBtn = createButton('Light');
   themeBtn.mousePressed(toggleTheme);
   
-  // Style everything
   styleUIElement(uploadInput);
   styleUIElement(exportBtn); 
   styleUIElement(resetBtn);
@@ -344,11 +360,10 @@ function setupUI() {
   leftTextInput.style('width', '140px');
   rightTextInput.style('width', '140px');
 
-  updateThemeStyling(); // Apply correct colors and text immediately
+  updateThemeStyling(); 
   positionUI();
 }
 
-// ** CHANGE: Button Text Logic **
 function updateThemeStyling() {
     let txtCol = isDarkMode ? '#fff' : '#000';
     let bordCol = isDarkMode ? '#555' : '#aaa';
@@ -358,25 +373,15 @@ function updateThemeStyling() {
         e.style('color', txtCol);
         e.style('border', '1px solid ' + bordCol);
     }
-    
-    // Logic: If Dark Mode, offer "Light". If Light Mode, offer "Dark".
-    if (themeBtn) {
-        themeBtn.html(isDarkMode ? "Light" : "Dark");
-    }
-
-    if(isRecording) {
-         recordBtn.style('color', 'red');
-    }
+    if (themeBtn) themeBtn.html(isDarkMode ? "Light" : "Dark");
+    if(isRecording) recordBtn.style('color', 'red');
 }
 
 function positionUI() {
   let yPos = height - 40; 
   leftTextInput.position(20, yPos);
   rightTextInput.position(180, yPos);
-  
   let rightMargin = width - 20;
-  
-  // Adjusted positions to fit new button
   themeBtn.position(rightMargin - 60, yPos);
   resetBtn.position(rightMargin - 120, yPos);
   recordBtn.position(rightMargin - 210, yPos);
