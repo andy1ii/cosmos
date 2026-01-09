@@ -1,44 +1,27 @@
-// --- CONFIGURATION ---
-
-let delayStart = 30; // Pause before animation starts
-let isDarkMode = true; 
-let itemPadding = 20; 
-
-// --- TEXT & FONTS ---
+let delayStart = 30;
+let isDarkMode = true;
+let itemPadding = 20;
 
 let fontSans, fontSerif;
-let leftText = "Coffee Houses "; 
+let leftText = "Coffee Houses ";
 let rightText = "curated by @DAVIDSMITH";
-
-// Image Management
 
 let imgs = [];
 let nodes = [];
-let totalCarouselWidth = 0; 
+let totalCarouselWidth = 0;
 let uploadCounter = 0;
 
-// Camera & Interaction
-
-let camDist = 800; 
-
-// Video/Export State
+let camDist = 800;
 
 let isRecording = false;
 let recorder;
-let recordingFrameCount = 0; 
+let recordingFrameCount = 0;
 
-// --- ANIMATION TIMING ---
+const SEQ_DURATION = 60;
+const HOLD_DURATION = 30;
 
-// 1. SEQUENCE DURATION (Forward Animation)
-const SEQ_DURATION = 60; 
-
-// 2. HOLD DURATION (Pause at full width)
-const HOLD_DURATION = 30; 
-
-// DOM Elements
-
-let uploadInput, exportBtn, recordBtn, resetBtn, themeBtn; 
-let leftTextInput, rightTextInput; 
+let uploadInput, exportBtn, recordBtn, resetBtn, themeBtn;
+let leftTextInput, rightTextInput;
 
 function preload() {
   fontSans = loadFont('resources/FTRegolaNeueTrial-Semibold.otf');
@@ -48,39 +31,37 @@ function preload() {
 function setup() {
   createCanvas(windowWidth, windowHeight, WEBGL);
   noStroke();
-  textureMode(NORMAL); 
-  
+  textureMode(NORMAL);
+
   if (typeof CCapture === 'undefined') {
       loadScript("https://unpkg.com/ccapture.js@1.1.0/build/CCapture.all.min.js", () => {
           console.log("CCapture loaded dynamically.");
       });
   }
-  
+
   setupUI();
   rebuildCarousel();
 }
 
 function draw() {
-  background(isDarkMode ? 0 : 255); 
-  
+  background(isDarkMode ? 0 : 255);
+
   camera(0, 0, camDist, 0, 0, 0, 0, 1, 0);
 
-  // --- 1. DETERMINE TIME (t) ---
-  let t = 0; 
-  
+  let t = 0;
+
   if (isRecording) {
       if (recordingFrameCount > delayStart) {
           let activeFrame = recordingFrameCount - delayStart;
-          
+
           if (activeFrame <= SEQ_DURATION) {
-              t = activeFrame; // Forward
+              t = activeFrame;
           } else if (activeFrame <= SEQ_DURATION + HOLD_DURATION) {
-              t = SEQ_DURATION; // Hold
+              t = SEQ_DURATION;
           } else {
-              // Reverse
               let timeSinceHold = activeFrame - (SEQ_DURATION + HOLD_DURATION);
               t = SEQ_DURATION - timeSinceHold;
-              if (t < 0) t = 0; 
+              if (t < 0) t = 0;
           }
 
           let totalDuration = (SEQ_DURATION * 2) + HOLD_DURATION;
@@ -88,98 +69,72 @@ function draw() {
               stopVideoExport();
           }
       } else {
-          t = 0; // Delay phase
+          t = 0;
       }
   } else {
-      t = SEQ_DURATION; // Manual Mode
+      t = SEQ_DURATION;
   }
 
-  // --- 2. MEASURE TEXT EXACTLY ---
   push();
-  textSize(40); 
+  textSize(40);
   textFont(fontSerif); let wl = textWidth(leftText);
   textFont(fontSans);  let wr = textWidth(rightText);
   pop();
 
-  // --- 3. DYNAMIC CONTENT CALCULATIONS ---
-  // We calculate the width FIRST so we can zoom based on it later
-  
   let currentDynamicWidth = 0;
-  let nodeSizes = []; 
+  let nodeSizes = [];
 
-  // Calculate width of images at current moment
   for (let i = 0; i < nodes.length; i++) {
       let s = getImageScaleAtTime(t, i);
       let currentW = nodes[i].w * s;
       let currentPad = (i < nodes.length - 1) ? (itemPadding * s) : 0;
-      
+
       nodeSizes.push({ s, currentW, currentPad });
       currentDynamicWidth += currentW + currentPad;
   }
 
-  // Calculate dynamic gap (0 at start, 20 when images appear)
   let dynamicGap = 0;
   if (nodes.length > 0 && nodeSizes[0]) {
       dynamicGap = 20 * nodeSizes[0].s;
   }
 
-  // The geometric center of the IMAGES
   let halfWidth = (currentDynamicWidth / 2) + dynamicGap;
 
-
-  // --- 4. CENTERING & DYNAMIC ZOOM LOGIC ---
-
-  // A. CALCULATE BOUNDING BOX
   let leftEdge = -halfWidth - wl;
   let rightEdge = halfWidth + wr;
 
-  // B. FIND VISUAL CENTER
   let centerOffset = (leftEdge + rightEdge) / 2;
 
-  // C. CALCULATE DYNAMIC ZOOM
-  // Instead of using totalCarouselWidth (Static), we use currentDynamicWidth (Growing).
-  // This causes the camera to pull back as the content grows.
   let currentTotalWidth = wl + dynamicGap + currentDynamicWidth + dynamicGap + wr;
-  
-  // Use 85% of screen width as the safe zone
-  let safeScreenWidth = width * 0.85; 
-  
+
+  let safeScreenWidth = width * 0.85;
+
   let zoom = 1;
-  // If the current growing content exceeds the screen, zoom out to fit.
   if (currentTotalWidth > safeScreenWidth) {
       zoom = safeScreenWidth / currentTotalWidth;
   }
 
-  // D. APPLY TRANSFORMS
   scale(zoom);
   translate(-centerOffset, 0, 0);
 
-
-  // --- 5. POSITIONING ELEMENTS ---
-  
   let leftTextX = -halfWidth;
   let rightTextX = halfWidth;
 
-  // --- 6. DRAW TEXT ---
   push();
-  fill(isDarkMode ? 255 : 0); 
-  textSize(40); 
+  fill(isDarkMode ? 255 : 0);
+  textSize(40);
   noStroke();
-  
-  // Left Text
-  textFont(fontSerif); 
+
+  textFont(fontSerif);
   textAlign(RIGHT, CENTER);
-  text(leftText, leftTextX, 0); 
-  
-  // Right Text
-  textFont(fontSans); 
+  text(leftText, leftTextX, 0);
+
+  textFont(fontSans);
   textAlign(LEFT, CENTER);
   text(rightText, rightTextX, 0);
   pop();
 
-  // --- 7. DRAW IMAGES ---
   if (nodes.length > 0) {
-      // Start drawing from the left side of the image cluster
       let currentX = -(currentDynamicWidth / 2);
 
       for (let i = 0; i < nodes.length; i++) {
@@ -189,10 +144,10 @@ function draw() {
           if (data.s > 0.001) {
               push();
               let drawX = currentX + (data.currentW / 2);
-              
-              translate(drawX, 0, 0); 
-              scale(data.s); 
-              
+
+              translate(drawX, 0, 0);
+              scale(data.s);
+
               texture(n.img);
               plane(n.w, n.h);
               pop();
@@ -208,29 +163,21 @@ function draw() {
   }
 }
 
-// --- HELPER: ANIMATION (SMOOTH EASE-IN-OUT) ---
-
 function getImageScaleAtTime(t, index) {
-    let startFrame = 0 + (index * 2); 
-    let duration = 25; 
-    
+    let startFrame = 0 + (index * 2);
+    let duration = 25;
+
     if (t < startFrame) return 0;
     if (t > startFrame + duration) return 1;
-    
-    let p = map(t, startFrame, startFrame + duration, 0, 1, true);
-    
-    // Using easeInOutQuint for smooth Start AND End
-    return easeInOutQuint(p); 
-}
 
-// --- EASING ---
+    let p = map(t, startFrame, startFrame + duration, 0, 1, true);
+
+    return easeInOutQuint(p);
+}
 
 function easeInOutQuint(x) {
-    // This starts slow, speeds up in middle, slows down at end.
     return x < 0.5 ? 16 * x * x * x * x * x : 1 - Math.pow(-2 * x + 2, 5) / 2;
 }
-
-// --- CORE FUNCTIONS ---
 
 function rebuildCarousel() {
   nodes = [];
@@ -241,7 +188,7 @@ function rebuildCarousel() {
 
   let currentTotalW = 0;
   let sizingData = imgs.map(img => {
-      if (!img.randomH) img.randomH = random(250, 450); 
+      if (!img.randomH) img.randomH = random(250, 450);
       let h = img.randomH;
       let ratio = img.width / img.height;
       let w = h * ratio;
@@ -250,14 +197,14 @@ function rebuildCarousel() {
   });
 
   if (sizingData.length > 0) {
-      currentTotalW += (sizingData.length - 1) * itemPadding; 
+      currentTotalW += (sizingData.length - 1) * itemPadding;
   }
-  
+
   totalCarouselWidth = currentTotalW;
-  
+
   nodes = sizingData.map((d) => {
-      return { 
-          img: d.img, 
+      return {
+          img: d.img,
           w: d.w,
           h: d.h
       };
@@ -289,13 +236,13 @@ function handleExport() {
 function startVideoExport() {
     if (nodes.length === 0) {
         alert("⚠️ Please upload images first!");
-        return; 
+        return;
     }
-    if (typeof CCapture === 'undefined') { 
-        alert("Video engine loading..."); 
-        return; 
+    if (typeof CCapture === 'undefined') {
+        alert("Video engine loading...");
+        return;
     }
-    recordingFrameCount = 0; 
+    recordingFrameCount = 0;
     isRecording = true;
 
     try {
@@ -311,9 +258,9 @@ function startVideoExport() {
 
 function stopVideoExport() {
     if(recorder) {
-        recorder.stop(); 
+        recorder.stop();
         recorder.save();
-        isRecording = false; 
+        isRecording = false;
         recordBtn.html("Save Video");
         updateThemeStyling();
     }
@@ -328,7 +275,6 @@ function toggleTheme() {
     updateThemeStyling();
 }
 
-// --- UI SETUP ---
 function setupUI() {
   leftTextInput = createInput(leftText);
   leftTextInput.attribute('placeholder', 'Left Text');
@@ -339,33 +285,33 @@ function setupUI() {
   rightTextInput.input(() => { rightText = rightTextInput.value(); });
 
   uploadInput = createFileInput(handleFileUpload);
-  uploadInput.attribute('multiple', 'true'); 
+  uploadInput.attribute('multiple', 'true');
   uploadInput.elt.onclick = () => { handleReset(); };
-  
+
   exportBtn = createButton('Save Image');
   exportBtn.mousePressed(handleExport);
-  
+
   recordBtn = createButton('Save Video');
-  recordBtn.mousePressed(handleVideoToggle); 
-  
+  recordBtn.mousePressed(handleVideoToggle);
+
   resetBtn = createButton('Reset');
-  resetBtn.mousePressed(handleReset); 
-  
+  resetBtn.mousePressed(handleReset);
+
   themeBtn = createButton('Light');
   themeBtn.mousePressed(toggleTheme);
-  
+
   styleUIElement(uploadInput);
-  styleUIElement(exportBtn); 
+  styleUIElement(exportBtn);
   styleUIElement(resetBtn);
   styleUIElement(recordBtn);
   styleUIElement(themeBtn);
-  styleUIElement(leftTextInput); 
+  styleUIElement(leftTextInput);
   styleUIElement(rightTextInput);
-  
+
   leftTextInput.style('width', '140px');
   rightTextInput.style('width', '140px');
 
-  updateThemeStyling(); 
+  updateThemeStyling();
   positionUI();
 }
 
@@ -373,7 +319,7 @@ function updateThemeStyling() {
     let txtCol = isDarkMode ? '#fff' : '#000';
     let bordCol = isDarkMode ? '#555' : '#aaa';
     let els = [uploadInput, exportBtn, recordBtn, resetBtn, themeBtn, leftTextInput, rightTextInput];
-    
+
     for(let e of els) {
         e.style('color', txtCol);
         e.style('border', '1px solid ' + bordCol);
@@ -383,7 +329,7 @@ function updateThemeStyling() {
 }
 
 function positionUI() {
-  let yPos = height - 40; 
+  let yPos = height - 40;
   leftTextInput.position(20, yPos);
   rightTextInput.position(180, yPos);
   let rightMargin = width - 20;
