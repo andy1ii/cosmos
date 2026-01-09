@@ -102,6 +102,7 @@ function draw() {
   pop();
 
   // --- 3. DYNAMIC CONTENT CALCULATIONS ---
+  // We calculate the width FIRST so we can zoom based on it later
   
   let currentDynamicWidth = 0;
   let nodeSizes = []; 
@@ -126,7 +127,7 @@ function draw() {
   let halfWidth = (currentDynamicWidth / 2) + dynamicGap;
 
 
-  // --- 4. CENTERING & ZOOM LOGIC ---
+  // --- 4. CENTERING & DYNAMIC ZOOM LOGIC ---
 
   // A. CALCULATE BOUNDING BOX
   let leftEdge = -halfWidth - wl;
@@ -135,13 +136,18 @@ function draw() {
   // B. FIND VISUAL CENTER
   let centerOffset = (leftEdge + rightEdge) / 2;
 
-  // C. CALCULATE SAFETY ZOOM
-  let maxPossibleWidth = wl + 20 + totalCarouselWidth + 20 + wr;
+  // C. CALCULATE DYNAMIC ZOOM
+  // Instead of using totalCarouselWidth (Static), we use currentDynamicWidth (Growing).
+  // This causes the camera to pull back as the content grows.
+  let currentTotalWidth = wl + dynamicGap + currentDynamicWidth + dynamicGap + wr;
+  
+  // Use 85% of screen width as the safe zone
   let safeScreenWidth = width * 0.85; 
   
   let zoom = 1;
-  if (maxPossibleWidth > safeScreenWidth) {
-      zoom = safeScreenWidth / maxPossibleWidth;
+  // If the current growing content exceeds the screen, zoom out to fit.
+  if (currentTotalWidth > safeScreenWidth) {
+      zoom = safeScreenWidth / currentTotalWidth;
   }
 
   // D. APPLY TRANSFORMS
@@ -213,7 +219,7 @@ function getImageScaleAtTime(t, index) {
     
     let p = map(t, startFrame, startFrame + duration, 0, 1, true);
     
-    // CHANGED: Using easeInOutQuint for smooth Start AND End
+    // Using easeInOutQuint for smooth Start AND End
     return easeInOutQuint(p); 
 }
 
@@ -221,7 +227,6 @@ function getImageScaleAtTime(t, index) {
 
 function easeInOutQuint(x) {
     // This starts slow, speeds up in middle, slows down at end.
-    // Perfect for splitting apart and coming back together gracefully.
     return x < 0.5 ? 16 * x * x * x * x * x : 1 - Math.pow(-2 * x + 2, 5) / 2;
 }
 
